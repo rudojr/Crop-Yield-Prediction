@@ -9,10 +9,9 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 
 
-# Hàm tải mô hình từ code đã được cung cấp
 def load_models(crop):
     safe_crop = crop.replace(" ", "_").replace("/", "_")
-    crop_dir = os.path.join("save_models", safe_crop)  # Đảm bảo đúng tên thư mục (saved_models)
+    crop_dir = os.path.join("save_models", safe_crop)
 
     lstm_model_path = os.path.join(crop_dir, "lstm_model.keras")
     lstm_embedding_path = os.path.join(crop_dir, "lstm_embedding_model.keras")
@@ -30,40 +29,31 @@ def load_models(crop):
     return lstm_model, lstm_embedding_model, xgb_model, scaler
 
 
-# Hàm dự đoán năng suất
 def predict_yield(crop, state, season, area, rainfall, fertilizer, pesticide, lstm_embedding_model, xgb_model, scaler):
-    # Tạo dữ liệu đầu vào
-    # Đầu tiên chuẩn bị dữ liệu chuỗi thời gian (3 năm gần nhất)
+
     seq_data = np.array([[rainfall, fertilizer, pesticide]] * 3).reshape(1, 3, 3)
 
-    # Chuẩn hóa dữ liệu chuỗi thời gian
     seq_data_flat = seq_data.reshape(-1, seq_data.shape[-1])
     seq_data_scaled = scaler.transform(seq_data_flat).reshape(seq_data.shape)
 
-    # Tạo đặc trưng tĩnh
-    # Lấy dữ liệu để tạo One-hot encoding cho State và Season
+
     df = pd.read_csv("data.csv")  # Đọc file dữ liệu gốc
     df_sample = df[df['Crop'] == crop].copy()
     df_sample = pd.get_dummies(df_sample, columns=['Season', 'State'], drop_first=True)
 
-    # Lấy tất cả các cột State_ và Season_
     state_cols = [col for col in df_sample.columns if col.startswith('State_')]
     season_cols = [col for col in df_sample.columns if col.startswith('Season_')]
 
-    # Tạo đặc trưng tĩnh
     static_data = np.zeros(len(state_cols) + len(season_cols) + 1)  # +1 cho Area
 
-    # Đặt giá trị cho Area
     static_data[-1] = area
 
-    # Đặt giá trị One-hot cho State
     for i, col in enumerate(state_cols):
         state_name = col.replace('State_', '')
         if state_name == state:
             static_data[i] = 1
             break
 
-    # Đặt giá trị One-hot cho Season
     offset = len(state_cols)
     for i, col in enumerate(season_cols):
         season_name = col.replace('Season_', '')
@@ -71,29 +61,23 @@ def predict_yield(crop, state, season, area, rainfall, fertilizer, pesticide, ls
             static_data[offset + i] = 1
             break
 
-    # Sử dụng mô hình LSTM để tạo embedding
     lstm_embedding = lstm_embedding_model.predict(seq_data_scaled)
 
-    # Kết hợp embedding và đặc trưng tĩnh
     xgb_input = np.concatenate([lstm_embedding, static_data.reshape(1, -1)], axis=1)
 
-    # Dự đoán với XGBoost
     prediction = xgb_model.predict(xgb_input)[0]
 
     return prediction
 
 
-# Hàm tải dữ liệu lịch sử năng suất cho biểu đồ
 def load_historical_data(crop, state, season):
     df = pd.read_csv("data.csv")
     filtered_df = df[(df['Crop'] == crop) & (df['State'] == state) & (df['Season'] == season)].sort_values('Crop_Year')
     return filtered_df
 
 
-# Giao diện chính
 st.title("🌾 Dự đoán năng suất nông sản (Yield Prediction)")
 
-# Tải dữ liệu
 try:
     df = pd.read_csv("data.csv")
     crop_list = df["Crop"].unique()
@@ -103,7 +87,6 @@ except Exception as e:
     st.error(f"Lỗi khi tải dữ liệu: {e}")
     st.stop()
 
-# Layout chính
 col1, col2 = st.columns([2, 1])
 
 with col1:
@@ -127,16 +110,13 @@ with col1:
     if st.button("Dự đoán"):
         with st.spinner('Đang tính toán...'):
             try:
-                # Thực hiện dự đoán
                 prediction = predict_yield(
                     crop_name, state, season, area, annual_rainfall,
                     fertilizer, pesticide, embedding_model, xgb_model, scaler
                 )
 
-                # Hiển thị kết quả
-                st.success(f"Năng suất dự đoán: {prediction:.2f} tấn/ha")
+                st.success(f"Năng suất dự đoán: {prediction:.2f}")
 
-                # Hiển thị dữ liệu lịch sử
                 st.subheader("So sánh với dữ liệu lịch sử")
                 historical_data = load_historical_data(crop_name, state, season)
 
@@ -145,10 +125,8 @@ with col1:
                     years = historical_data['Crop_Year'].tolist()
                     yields = historical_data['Yield'].tolist()
 
-                    # Vẽ dữ liệu lịch sử
                     ax.plot(years, yields, marker='o', linestyle='-', color='blue', label='Năng suất lịch sử')
 
-                    # Thêm điểm dự đoán
                     current_year = max(years) + 1 if years else 2025
                     ax.scatter([current_year], [prediction], color='red', s=100, label='Dự đoán')
                     ax.plot([years[-1], current_year], [yields[-1], prediction], 'r--')
